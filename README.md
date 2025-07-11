@@ -4,7 +4,7 @@ This project transforms a Raspberry Pi Pico W into a sophisticated environmental
 
 The web dashboard provides real-time readings, historical data charts, and system health statistics. It is designed to be reliable for long-term use, with features like a hardware watchdog, power-saving modes, and robust error handling.
 
- <img width="743" height="820" alt="Screenshot 2025-07-11 at 2 52 21 PM" src="https://github.com/user-attachments/assets/36b65b37-0835-4fbf-85f2-2f7aac72a3e2" />
+<img width="551" height="872" alt="Screenshot 2025-07-11 at 5 14 35 PM" src="https://github.com/user-attachments/assets/879ed906-4209-4bb4-9a88-7ac9889b1fe7" />
 
 
 ## Features
