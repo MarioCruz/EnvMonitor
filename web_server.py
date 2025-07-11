@@ -1,4 +1,4 @@
-# web_server.py - Corrected with self-contained helper function
+# web_server.py - Corrected with implemented file downloads
 import network
 import socket
 import time
@@ -9,6 +9,7 @@ import os
 import json
 
 def format_uptime(seconds):
+    """Formats uptime in a human-readable string."""
     try:
         if seconds < 0: return "0m 0s"
         days, remainder = divmod(seconds, 86400)
@@ -35,6 +36,7 @@ class WebServer:
         self.initialize_log_files()
 
     def handle_api_data(self, client_socket):
+        """Handles the /api/data endpoint to provide live data."""
         try:
             readings = self.sensor_manager.get_readings()
             system_stats = self.monitor.check_system_health()
@@ -56,39 +58,54 @@ class WebServer:
             self.send_response(client_socket, '{"error":"API error"}', status_code=500)
 
     def handle_test_page(self, client_socket):
+        """Handles the /test.html page for basic server function testing."""
         try:
             current_time = time.localtime()
             formatted_time = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(*current_time)
             device_id_bytes = unique_id()
             device_id_str = ':'.join(['%02x' % byte for byte in device_id_bytes])
-            test_html_content = """
+            test_html_content = f"""
             <!DOCTYPE html><html><head><title>Pico W Test Page</title><style>body{{font-family:sans-serif;}}</style></head>
             <body><h1>Web Server is Running!</h1><p>If you see this, the core server is functional.</p>
-            <ul><li><strong>Device ID:</strong> {}</li><li><strong>Time:</strong> {}</li></ul>
+            <ul><li><strong>Device ID:</strong> {device_id_str}</li><li><strong>Time:</strong> {formatted_time}</li></ul>
             <p><a href="/">Back to Dashboard</a></p></body></html>
-            """.format(device_id_str, formatted_time)
+            """
             self.send_response(client_socket, test_html_content)
         except Exception:
             self.send_response(client_socket, "<h1>Error</h1>", status_code=500)
 
     def handle_request(self, client_socket):
+        """Parses an incoming request and routes it to the correct handler."""
         try:
             client_socket.settimeout(2.0)
             request_bytes = client_socket.recv(1024)
             if not request_bytes: client_socket.close(); return None, None
-            request = request_bytes.decode('utf-8')
-            method, path, _ = request.split('\r\n')[0].split(' ')
             
+            request = request_bytes.decode('utf-8')
+            first_line = request.split('\r\n')[0]
+            parts = first_line.split(' ')
+            if len(parts) < 2:
+                client_socket.close()
+                return None, None
+            method, path = parts[0], parts[1]
+            
+            # Route to the appropriate handler based on the path
             if path == '/test.html': self.handle_test_page(client_socket); return None, None
             if path == '/api/data': self.handle_api_data(client_socket); return None, None
             if path == '/api/history': self.handle_api_history(client_socket); return None, None
-            if path in ['/csv', '/json', '/logs/network.log']: self.handle_file_download(client_socket, path); return None, None
+            if path in ['/csv', '/json', '/logs/network.log', '/logs/sensor_log.txt']: 
+                self.handle_file_download(client_socket, path)
+                return None, None
+            
+            # If no API/file path matched, return method and path to the main loop for HTML serving
             return method, path
         except Exception as e:
             self.log_network_event("REQUEST", f"Error handling request: {str(e)}", "ERROR")
+            client_socket.close() # Ensure socket is closed on error
             return None, None
 
     def initialize_log_files(self):
+        """Ensures the log directory and network log file exist."""
         try:
             os.mkdir('/logs')
         except OSError as e:
@@ -99,6 +116,7 @@ class WebServer:
             with open('/logs/network.log', 'w') as f: f.write("Network Log Started\n")
 
     def log_network_event(self, event_type, message, severity="INFO"):
+        """Logs network-related events to a file."""
         try:
             timestamp = time.localtime()
             log_entry = f"{timestamp[0]}-{timestamp[1]:02d}-{timestamp[2]:02d} {timestamp[3]:02d}:{timestamp[4]:02d}:{timestamp[5]:02d} [{severity}] [{event_type}] {message}\n"
@@ -107,16 +125,22 @@ class WebServer:
             print(f"Error writing to network log: {e}")
 
     def connect_wifi(self, ssid, password, max_wait=30):
+        """Establishes a connection to the WiFi network."""
         self.log_network_event("WIFI", f"Connecting to WiFi network: {ssid}")
         try:
             self.wlan = network.WLAN(network.STA_IF)
             self.wlan.active(True)
             if getattr(config, 'USE_STATIC_IP', False): self.wlan.ifconfig((config.STATIC_IP, config.SUBNET_MASK, config.GATEWAY, config.DNS_SERVER))
-            if self.wlan.isconnected(): self.ip_address = self.wlan.ifconfig()[0]; return True
+            if self.wlan.isconnected(): 
+                self.ip_address = self.wlan.ifconfig()[0]
+                return True
             self.wlan.connect(ssid, password)
             start_time = time.time()
             while time.time() - start_time < max_wait:
-                if self.wlan.isconnected(): self.ip_address = self.wlan.ifconfig()[0]; self.log_network_event("WIFI", f"Connected. IP: {self.ip_address}"); return True
+                if self.wlan.isconnected(): 
+                    self.ip_address = self.wlan.ifconfig()[0]
+                    self.log_network_event("WIFI", f"Connected. IP: {self.ip_address}")
+                    return True
                 time.sleep(1)
             raise Exception("WiFi connection timeout")
         except Exception as e:
@@ -124,6 +148,7 @@ class WebServer:
             return False
 
     def initialize_server(self, port=80):
+        """Initializes the web server socket."""
         self.port = port
         if not self.wlan or not self.wlan.isconnected(): return False
         try:
@@ -139,24 +164,90 @@ class WebServer:
             return False
 
     def handle_api_history(self, client_socket):
+        """Handles the /api/history endpoint for chart data."""
         try:
             history_data = self.data_logger.get_history()
-            chart_json = { 'timestamps': [entry['timestamp'].split(' ')[1] for entry in history_data], 'temperatures': [entry['temp_c'] for entry in history_data], 'co2_levels': [entry['co2'] for entry in history_data], 'humidities': [entry['humidity'] for entry in history_data] }
+            chart_json = { 
+                'timestamps': [entry['timestamp'].split(' ')[1] for entry in history_data], 
+                'temperatures': [entry['temp_c'] for entry in history_data], 
+                'co2_levels': [entry['co2'] for entry in history_data], 
+                'humidities': [entry['humidity'] for entry in history_data] 
+            }
             self.send_response(client_socket, json.dumps(chart_json), content_type='application/json')
         except Exception as e:
             self.send_response(client_socket, f'{{"error":"History API error: {e}"}}', status_code=500)
 
     def send_response(self, client_socket, content, status_code=200, content_type="text/html", headers=None):
+        """Sends a complete HTTP response to the client."""
         try:
-            status_text = {200: "OK", 500: "Internal Server Error"}.get(status_code, "OK")
+            status_text = {200: "OK", 404: "Not Found", 500: "Internal Server Error"}.get(status_code, "OK")
             response_headers = [f"HTTP/1.1 {status_code} {status_text}", f"Content-Type: {content_type}", "Connection: close"]
-            if headers: response_headers.extend([f"{k}: {v}" for k, v in headers.items()])
+            if headers: 
+                response_headers.extend([f"{k}: {v}" for k, v in headers.items()])
+            
             header_string = "\r\n".join(response_headers) + "\r\n\r\n"
-            client_socket.sendall(header_string.encode() + content.encode())
+            
+            # Check if content is bytes, if not, encode it
+            if not isinstance(content, bytes):
+                content = content.encode('utf-8')
+
+            client_socket.sendall(header_string.encode('utf-8') + content)
         except Exception as e:
             self.log_network_event("RESPONSE", f"Failed to send response: {str(e)}", "ERROR")
         finally:
             client_socket.close()
 
-    def handle_file_download(self, client_socket, path): pass
-    def shutdown(self): pass
+    def handle_file_download(self, client_socket, path):
+        """Handles file download requests for CSV, JSON, and log files."""
+        gc.collect()
+        
+        try:
+            if path == '/csv':
+                history = self.data_logger.get_history()
+                # Create CSV content in memory
+                csv_content = "DateTime,Temperature_C,Temperature_F,CO2_PPM,Humidity,Pressure\n"
+                for entry in history:
+                    csv_content += f"{entry['timestamp']},{entry['temp_c']},{entry['temp_f']},{entry['co2']},{entry['humidity']},{entry['pressure']}\n"
+                
+                headers = {'Content-Disposition': 'attachment; filename="sensor_data.csv"'}
+                self.send_response(client_socket, csv_content, content_type="text/csv", headers=headers)
+                
+            elif path == '/json':
+                history = self.data_logger.get_history()
+                json_content = json.dumps(history)
+                headers = {'Content-Disposition': 'attachment; filename="sensor_data.json"'}
+                self.send_response(client_socket, json_content, content_type="application/json", headers=headers)
+
+            elif path.startswith('/logs/'):
+                filename = path.lstrip('/')
+                try:
+                    # Check file size to prevent memory errors
+                    file_size = os.stat(filename)[6]
+                    if file_size > (gc.mem_free() * 0.8): # Safety check: only load if it fits comfortably in RAM
+                        error_msg = "Log file is too large to send."
+                        self.send_response(client_socket, error_msg, status_code=500)
+                        self.log_network_event("DOWNLOAD", f"Failed to send {filename}: {error_msg}", "ERROR")
+                        return
+
+                    with open(filename, 'rb') as f:
+                        content = f.read()
+                    
+                    headers = {'Content-Disposition': f'attachment; filename="{os.path.basename(filename)}"'}
+                    self.send_response(client_socket, content, content_type="text/plain", headers=headers)
+                
+                except OSError:
+                    self.send_response(client_socket, "File Not Found", status_code=404)
+            else:
+                self.send_response(client_socket, "Invalid Path", status_code=404)
+
+        except Exception as e:
+            self.log_network_event("DOWNLOAD", f"Error generating file for {path}: {str(e)}", "ERROR")
+            self.send_response(client_socket, "Server error while generating file.", status_code=500)
+        finally:
+            gc.collect()
+
+    def shutdown(self):
+        """Shuts down the web server socket."""
+        if self.socket:
+            self.socket.close()
+            self.log_network_event("SERVER", "Web server shut down.")
