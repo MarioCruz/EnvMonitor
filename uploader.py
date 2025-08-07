@@ -23,34 +23,20 @@ def upload_data_to_server(sensor_data):
     }
 
     try:
-        if config.UPLOAD_DEBUG_MODE:
-            print(f"[Upload] Sending data to: {config.UPLOAD_URL}")
-            print(f"[Upload] Payload: {json.dumps(payload, indent=2)}")
+        headers = {'Content-Type': 'application/json'}
+        payload = json.dumps(payload)
+        response = urequests.post(config.UPLOAD_URL, data=payload, headers=headers)
         
-        response = urequests.post(
-            config.UPLOAD_URL,
-            data=json.dumps(payload),
-            headers={'Content-Type': 'application/json'}
-        )
-        
-        # Accept both 200 (OK) and 201 (Created) as success
-        success = response.status_code in [200, 201]
-        
-        if config.UPLOAD_DEBUG_MODE:
-            print(f"[Upload] Response status: {response.status_code}")
-            try:
-                response_text = response.text
-                print(f"[Upload] Response body: {response_text}")
-            except:
-                print(f"[Upload] Could not read response body")
-            
-            if success:
+        if 200 <= response.status_code < 300:
+            if config.UPLOAD_DEBUG_MODE:
                 print(f"[Upload] ✓ Upload successful")
-            else:
+            response.close()
+            return True
+        else:
+            if config.UPLOAD_DEBUG_MODE:
                 print(f"[Upload] ✗ Upload failed with status {response.status_code}")
-        
-        response.close()
-        return success
+            response.close()
+            return False
         
     except Exception as e:
         error_msg = str(e)
