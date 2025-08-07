@@ -1,4 +1,4 @@
-# system_monitor.py - Monitors system health and status
+# system_monitor.py - Corrected with the missing record_error method
 import gc
 import os
 import time
@@ -35,6 +35,10 @@ class SystemMonitor:
         }
         self.check_system_health()
     
+    def record_error(self, component_name="Unknown"):
+        """Record a system error"""
+        self.failed_measurements += 1
+
     def get_device_model(self):
         """Gets the board model name from os.uname()."""
         try:
@@ -58,7 +62,7 @@ class SystemMonitor:
             return 0
 
     def check_system_health(self):
-        """Check overall system health"""
+        """System health check with basic monitoring"""
         feed_watchdog()
         try:
             gc.collect()
@@ -66,23 +70,32 @@ class SystemMonitor:
             mem_total = mem_free + mem_alloc
             mem_percent = (mem_alloc / mem_total) * 100 if mem_total > 0 else 0
             
-            s = os.statvfs('/')
-            storage_total = s[0] * s[2]
-            storage_free = s[0] * s[3]
-            storage_used = storage_total - storage_free
-            storage_percent = (storage_used / storage_total) * 100 if storage_total > 0 else 0
+            # Log memory warnings
+            if mem_percent > 85:
+                self.logger.log("MEMORY", f"Critical memory usage: {mem_percent:.1f}%", "WARNING")
+            elif mem_percent > 75:
+                self.logger.log("MEMORY", f"High memory usage: {mem_percent:.1f}%", "INFO")
+            
+            # Simplified storage check
+            try:
+                s = os.statvfs('/')
+                storage_total = s[0] * s[2]
+                storage_free = s[0] * s[3]
+                storage_percent = ((storage_total - storage_free) / storage_total) * 100
+                
+                if storage_percent > 90:
+                    self.logger.log("STORAGE", f"Critical storage: {storage_percent:.1f}%", "WARNING")
+            except:
+                storage_percent = 0
 
             self.health_stats.update({
                 'uptime': time.time() - self.start_time,
-                'cpu_temp': self.get_cpu_temperature(),
-                'total_measurements': self.total_measurements,
-                'failed_measurements': self.failed_measurements,
-                'device_model': self.get_device_model(),
                 'memory_percent': mem_percent,
                 'memory_used': mem_alloc,
                 'storage_percent': storage_percent,
+                'device_model': self.get_device_model()
             })
             return self.health_stats
         except Exception as e:
-            self.logger.log("SYSTEM", f"Error checking system health: {e}", "ERROR")
+            self.logger.log("SYSTEM", f"Health check error: {e}", "ERROR")
             return self.health_stats

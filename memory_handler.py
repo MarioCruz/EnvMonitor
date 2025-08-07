@@ -1,6 +1,7 @@
 # memory_handler.py - Advanced memory management for MicroPython
 import gc
 import time
+import config
 
 class MemoryHandler:
     """Enhanced memory management with emergency recovery capabilities"""
@@ -15,14 +16,14 @@ class MemoryHandler:
         self.logger = logger
         self.components = components or {}
         
-        # Memory thresholds
-        self.warning_threshold = 75  # % memory usage for warning
-        self.critical_threshold = 85  # % memory usage for critical action
-        self.emergency_threshold = 92  # % memory usage for emergency action
+        # Simplified memory thresholds
+        self.warning_threshold = config.MEMORY_WARNING_THRESHOLD
+        self.critical_threshold = config.MEMORY_CRITICAL_THRESHOLD
+        self.emergency_threshold = 90  # Emergency threshold
         
-        # Tracking variables
+        # Simplified tracking
         self.last_collection = time.time()
-        self.collection_interval = 60  # 1 minute between routine collections
+        self.collection_interval = config.GC_COLLECT_INTERVAL
         self.collection_count = 0
         self.emergency_count = 0
         self.last_memory_percent = 0
@@ -90,6 +91,7 @@ class MemoryHandler:
         if percent > self.emergency_threshold:
             self.logger.log("MEMORY", f"EMERGENCY: Memory usage at {percent:.1f}%", "CRITICAL")
             self._emergency_recovery()
+            self.emergency_count += 1
             # After recovery, collect and update stats
             gc.collect()
             stats = self._get_memory_stats()
@@ -105,50 +107,25 @@ class MemoryHandler:
         return stats
     
     def _emergency_recovery(self):
-        """Perform emergency memory recovery procedures
+        """Simplified emergency memory recovery"""
+        self.logger.log("MEMORY", "Emergency memory recovery initiated", "CRITICAL")
         
-        Returns:
-            bool: True if recovery actions were taken
-        """
-        self.emergency_count += 1
-        self.logger.log("MEMORY", f"Initiating emergency memory recovery (#{self.emergency_count})", "CRITICAL")
-        
-        # Take increasingly aggressive recovery actions based on count
         actions_taken = []
         
-        # Basic recovery - already did gc.collect() before calling this method
-        
-        # Clear any component caches 
-        for name, component in self.components.items():
+        # Try data_logger recovery first
+        if 'data_logger' in self.components:
             try:
-                # Try data_logger emergency recovery
-                if name == 'data_logger' and hasattr(component, 'emergency_memory_recovery'):
-                    if component.emergency_memory_recovery():
-                        actions_taken.append("Reduced data history size")
-                
-                # Clear any sensor caches
-                elif name == 'sensor_manager' and hasattr(component, 'clear_caches'):
-                    if component.clear_caches():
-                        actions_taken.append("Cleared sensor caches")
-                
-                # Reset web server socket if needed
-                elif name == 'web_server' and self.emergency_count > 2:
-                    if hasattr(component, 'reset_socket') and component.reset_socket():
-                        actions_taken.append("Reset web server socket")
+                if self.components['data_logger'].emergency_memory_recovery():
+                    actions_taken.append("Reduced data history")
             except Exception as e:
-                self.logger.log("MEMORY", f"Error during recovery of {name}: {e}", "ERROR")
+                self.logger.log("MEMORY", f"Data logger recovery error: {e}", "ERROR")
         
-        # Most aggressive recovery - force reinitialization of components
-        if self.emergency_count > 3:
-            # Log serious issue
-            self.logger.log("MEMORY", "Repeated memory emergencies, consider system restart", "CRITICAL")
-            
-            # Delete any non-essential data
-            actions_taken.append("Aggressive memory cleanup performed")
+        # Force garbage collection
+        gc.collect()
+        actions_taken.append("Forced garbage collection")
         
-        # Report actions
         if actions_taken:
-            self.logger.log("MEMORY", f"Recovery actions: {', '.join(actions_taken)}", "WARNING")
+            self.logger.log("MEMORY", f"Recovery: {', '.join(actions_taken)}", "WARNING")
             return True
         
         return False

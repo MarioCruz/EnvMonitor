@@ -1,4 +1,4 @@
-# web_template.py - Final correction for storage progress bar color
+# web_template.py - Final version with typo corrected
 from machine import unique_id
 import sys
 import config
@@ -15,8 +15,8 @@ def format_uptime(seconds):
 
 HTML_HEADER = """<!DOCTYPE html><html><head><title>Environmental Monitor v{version}</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.jsdelivr.net/npm/apexcharts"></script><style>body{{font-family:Arial,sans-serif;background:#f0f8ff;margin:0;padding:0}}#main-container{{max-width:800px;margin:20px auto;background:#fff;padding:20px;box-shadow:0 0 10px rgba(0,0,0,.1);border-radius:8px}}h1,h2{{text-align:center;color:#2c3e50}}.readings-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin-bottom:20px}}.reading-card{{background:#f8f9fa;padding:15px;border-radius:8px;text-align:center;border:1px solid #e9ecef}}.label{{font-size:.9em;color:#6c757d}}.value{{font-size:1.8em;font-weight:700;margin:5px 0}}.status{{font-size:.8em}}.toggle-btn{{font-size:.7em;padding:3px 8px;margin-top:5px;cursor:pointer;border:1px solid #007bff;background-color:#007bff;color:#fff;border-radius:12px}}.chart-container{{padding:10px;background:#fff;border:1px solid #ccc;border-radius:5px;margin-bottom:20px}}.system-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:15px}}.system-card{{background:#f8f9fa;border-radius:8px;padding:15px}}.system-card h3{{margin:0 0 10px;font-size:1rem;color:#2c3e50}}.progress-bar{{width:100%;height:8px;background:#ecf0f1;border-radius:4px;overflow:hidden;margin:10px 0}}.progress{{height:100%;transition:width .3s ease}}.system-details{{display:flex;justify-content:space-between;font-size:.8rem;color:#666;margin-top:8px}}.footer{{text-align:center;margin-top:20px;font-size:.9em;color:#7f8c8d}}</style></head><body><div id="main-container">"""
 HTML_TITLE = "<h1>Environmental Monitor v{version}</h1>"
-HTML_READINGS_GRID = """<div class="readings-grid"><div class="reading-card"><div class="label">Temperature</div><div id="temp-value" class="value" style="color:#2980b9" data-c="--" data-f="--">--.-°C</div><div id="temp-status" class="status">Normal</div><button id="temp-toggle" class="toggle-btn">Show °F</button></div><div class="reading-card"><div class="label">CO2 Level</div><div id="co2-value" class="value" style="color:#27ae60">---- PPM</div><div id="co2-status" class="status">Good</div></div><div class="reading-card"><div class="label">Humidity</div><div id="humidity-value" class="value" style="color:#8e44ad">--.-%</div><div id="humidity-status" class="status">Normal</div></div><div class="reading-card"><div class="label">Pressure</div><div id="pressure-value" class="value" style="color:#2c3e50">---- hPa</div><div class="status">Atmospheric</div></div></div>"""
-HTML_CHART_SECTION = """<div class="chart-container"><h2>Temperature & Humidity Trends</h2><div id="chart-temp-humidity"></div></div><div class="chart-container"><h2>CO2 Air Quality Trends</h2><div id="chart-co2"></div></div>"""
+HTML_READINGS_GRID = """<div class="readings-grid"><div class="reading-card"><div class="label">Temperature</div><div id="temp-value" class="value" style="color:#2980b9" data-c="--" data-f="--">--.-°C</div><div id="temp-status" class="status">Normal</div><button id="temp-toggle" class="toggle-btn">Show °F</button></div><div class="reading-card"><div class="label">CO2 Level</div><div id="co2-value" class="value" style="color:#27ae60">---- PPM</div><div id="co2-status" class="status">Good</div></div><div class="reading-card"><div class="label">Humidity</div><div id="humidity-value" class="value" style="color:#8e44ad">--.-%</div><div id="humidity-status" class="status">Normal</div></div><div class="reading-card"><div class="label">Light Level</div><div id="light-value" class="value" style="color:#f39c12">--- lux</div><div id="light-status" class="status">Normal</div></div><div class="reading-card"><div class="label">Pressure</div><div id="pressure-value" class="value" style="color:#2c3e50">---- hPa</div><div class="status">Atmospheric</div></div></div>"""
+HTML_CHART_SECTION = """<div class="chart-container"><h2>Temperature & Humidity Trends</h2><div id="chart-temp-humidity"></div></div><div class="chart-container"><h2>CO2 Air Quality Trends</h2><div id="chart-co2"></div></div><div class="chart-container"><h2>Light Level Trends</h2><div id="chart-light"></div></div>"""
 
 HTML_SYSTEM_SECTION = """
 <h2>System Status</h2>
@@ -40,9 +40,10 @@ HTML_SYSTEM_SECTION = """
         </div>
     </div>
     <div class="system-card">
-        <h3>System Info</h3>
+        <h3>Device Info</h3>
         <div class="system-details" style="flex-direction:column;align-items:flex-start;">
             <span>Device: <b id="device-model">--</b></span>
+            <span>ID: <b id="device-id">--</b></span>
             <span>Uptime: <b id="uptime-value">--</b></span>
             <span>Version: v{version}</span>
         </div>
@@ -51,7 +52,7 @@ HTML_SYSTEM_SECTION = """
 """
 
 HTML_FOOTER = """
-<div class="footer"><p>Last Updated: <span id="last-updated">Never</span><br>Download: <a href="/csv">CSV</a> | <a href="/json">JSON</a></p></div>
+<div class="footer"><p>Last Updated: <span id="last-updated">Never</span><br>Download Data: <a href="/csv">CSV File</a> | <a href="/json">JSON File</a> | <a href="/sensors">Sensor Status</a> | <a href="/test.html">Test Page</a></p></div>
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', function() {{
@@ -62,6 +63,9 @@ document.addEventListener('DOMContentLoaded', function() {{
     const chart2Options = {{ series: [], chart: {{ id: 'co2-chart', height: 250, type: 'area', toolbar: {{ show: false }} }}, stroke: {{ curve: 'smooth', width: 2 }}, xaxis: {{ type: 'category', categories: [] }}, yaxis: {{ title: {{ text: 'CO2 (PPM)' }} }}, colors: ['#00E396'], dataLabels: {{ enabled: false }}, noData: {{ text: 'Loading...' }} }};
     const chart2 = new ApexCharts(document.querySelector("#chart-co2"), chart2Options);
     chart2.render();
+    const chart3Options = {{ series: [], chart: {{ id: 'light-chart', height: 250, type: 'line', toolbar: {{ show: false }} }}, stroke: {{ curve: 'smooth', width: 2 }}, xaxis: {{ type: 'category', categories: [] }}, yaxis: {{ title: {{ text: 'Light (lux)' }} }}, colors: ['#f39c12'], dataLabels: {{ enabled: false }}, noData: {{ text: 'Loading...' }} }};
+    const chart3 = new ApexCharts(document.querySelector("#chart-light"), chart3Options);
+    chart3.render();
 
     function updateHistoryCharts() {{
         fetch('/api/history').then(r => r.json()).then(data => {{
@@ -69,6 +73,10 @@ document.addEventListener('DOMContentLoaded', function() {{
             chart1.updateOptions({{ xaxis: {{ categories: data.timestamps }} }});
             chart2.updateSeries([ {{ name: 'CO2', data: data.co2_levels }} ]);
             chart2.updateOptions({{ xaxis: {{ categories: data.timestamps }} }});
+            if (data.light_levels) {{
+                chart3.updateSeries([ {{ name: 'Light', data: data.light_levels }} ]);
+                chart3.updateOptions({{ xaxis: {{ categories: data.timestamps }} }});
+            }}
         }}).catch(err => console.error("History fetch error:", err));
     }}
 
@@ -82,10 +90,9 @@ document.addEventListener('DOMContentLoaded', function() {{
         tempToggleBtn.innerText = isCelsius ? 'Show °F' : 'Show °C';
     }}
 
-    // --- THIS IS THE CORRECTED JAVASCRIPT FUNCTION ---
     function updateLiveData() {{
         fetch('/api/data').then(r => r.json()).then(data => {{
-            // Temperature, CO2, Humidity, Pressure (unchanged)
+            // Temperature, CO2, Humidity, Pressure
             tempValueEl.setAttribute('data-c', data.temp_c.toFixed(1));
             tempValueEl.setAttribute('data-f', data.temp_f.toFixed(1));
             updateTempDisplay();
@@ -98,13 +105,30 @@ document.addEventListener('DOMContentLoaded', function() {{
             else if (data.co2 >= {co2_warning}) {{ co2Value.style.color = '#f39c12'; co2Status.innerText = 'Warning'; co2Status.style.color = '#f39c12'; }}
             else {{ co2Value.style.color = '#27ae60'; co2Status.innerText = 'Good'; co2Status.style.color = '#27ae60'; }}
             document.getElementById('humidity-value').innerText = `${{data.humidity.toFixed(1)}}%`;
+            
+            // Light Level
+            const lightValue = document.getElementById('light-value');
+            const lightStatus = document.getElementById('light-status');
+            if (data.lux !== undefined) {{
+                lightValue.innerText = `${{data.lux.toFixed(1)}} lux`;
+                if (data.lux < {light_dark}) {{ lightStatus.innerText = 'Dark'; lightStatus.style.color = '#2c3e50'; }}
+                else if (data.lux < {light_dim}) {{ lightStatus.innerText = 'Dim'; lightStatus.style.color = '#f39c12'; }}
+                else if (data.lux < {light_bright}) {{ lightStatus.innerText = 'Normal'; lightStatus.style.color = '#27ae60'; }}
+                else {{ lightStatus.innerText = 'Bright'; lightStatus.style.color = '#3498db'; }}
+            }} else {{
+                lightValue.innerText = '--- lux';
+                lightStatus.innerText = 'N/A';
+                lightStatus.style.color = '#95a5a6';
+            }}
+            
             document.getElementById('pressure-value').innerText = `${{data.pressure}} hPa`;
 
-            // System Info (unchanged)
+            // System Info
             document.getElementById('device-model').innerText = data.device_model;
+            document.getElementById('device-id').innerText = data.device_id;
             document.getElementById('uptime-value').innerText = data.uptime_str;
             
-            // System Bars - CORRECTED LOGIC
+            // System Bars
             const memProgress = document.getElementById('mem-progress');
             memProgress.style.width = data.memory_percent.toFixed(1) + '%';
             memProgress.style.backgroundColor = data.memory_percent > 85 ? '#e74c3c' : data.memory_percent > 70 ? '#f39c12' : '#27ae60';
@@ -126,7 +150,6 @@ document.addEventListener('DOMContentLoaded', function() {{
 </body></html>
 """
 
-# The create_html and send_chunked_html functions are unchanged.
 def create_html(config_obj):
     gc.collect()
     version = config_obj.VERSION
@@ -138,8 +161,11 @@ def create_html(config_obj):
         HTML_SYSTEM_SECTION.format(version=version),
         HTML_FOOTER.format(
             temp_high=config_obj.TEMP_HIGH, temp_low=config_obj.TEMP_LOW,
-            co2_danger=config_obj.CO2_DANGER, co2_warning=config_obj.CO2_WARNING,
-            humidity_high=config_obj.HUMIDITY_HIGH, humidity_low=config_obj.HUMIDITY_LOW
+            co2_danger=config_obj.CO2_DANGER,
+            co2_warning=config_obj.CO2_WARNING,
+            light_dark=config_obj.LIGHT_DARK,
+            light_dim=config_obj.LIGHT_DIM,
+            light_bright=config_obj.LIGHT_BRIGHT
         )
     ]
     return ''.join(html_parts)

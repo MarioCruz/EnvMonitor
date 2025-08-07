@@ -24,9 +24,8 @@ class DataLogger:
         self.last_log_time = time.time()
         self.log_interval = config.LOG_INTERVAL
         
-        # Reduced history buffer (12 entries = 3 hours at 15 minute intervals)
-        # This reduces memory usage compared to the original 24 entries
-        self.data_history = CircularBuffer(12)
+        # Reduced buffer size for better memory usage
+        self.data_history = CircularBuffer(config.CHART_HISTORY_POINTS)
         
         # Log file parameters
         self.max_log_size = config.MAX_LOG_SIZE
@@ -51,7 +50,7 @@ class DataLogger:
                 os.stat(self.log_filename)
             except OSError:
                 with open(self.log_filename, 'w') as f:
-                    f.write("DateTime,Temperature_C,Temperature_F,CO2_PPM,Humidity%,Pressure\n")
+                    f.write("DateTime,Temperature_C,Temperature_F,CO2_PPM,Humidity%,Pressure,Light_Lux\n")
                     
                 self.logger.log("LOGGER", f"Created new log file: {self.log_filename}", "INFO")
         except Exception as e:
@@ -148,12 +147,11 @@ class DataLogger:
                 f.readline()
                 
                 # Use a temporary buffer to store lines
-                # Reduce to the exact number of lines we need (12)
                 lines = []
                 for line in f:
                     lines.append(line)
-                    if len(lines) > 12:  # Reduced from 24 to 12
-                        # Keep only the last lines
+                    # Keep only the last N lines for memory efficiency
+                    if len(lines) > config.CHART_HISTORY_POINTS:
                         lines.pop(0)
                 
                 # Parse lines into history
@@ -161,7 +159,7 @@ class DataLogger:
                     try:
                         if line.strip() and not line.startswith('#'):
                             parts = line.strip().split(',')
-                            # Ensure we have all fields
+                            # Ensure we have all fields (support both old and new format)
                             if len(parts) >= 6:
                                 entry = {
                                     'timestamp': parts[0],
@@ -169,7 +167,8 @@ class DataLogger:
                                     'temp_f': float(parts[2]),
                                     'co2': int(parts[3]),
                                     'humidity': float(parts[4]),
-                                    'pressure': float(parts[5])
+                                    'pressure': float(parts[5]),
+                                    'lux': float(parts[6]) if len(parts) > 6 else 0.0  # Support old format
                                 }
                                 self.data_history.append(entry)
                     except (ValueError, IndexError) as e:
@@ -184,7 +183,7 @@ class DataLogger:
         except Exception as e:
             self.logger.log("LOGGER", "Error loading history", "ERROR", str(e))
     
-    def log_data(self, temp_c, temp_f, co2, humidity, pressure):
+    def log_data(self, temp_c, temp_f, co2, humidity, pressure, lux=None):
         """Log sensor data if interval has elapsed
         
         Args:
@@ -193,6 +192,7 @@ class DataLogger:
             co2: CO2 concentration in ppm
             humidity: Relative humidity in percent
             pressure: Atmospheric pressure in hPa
+            lux: Light level in lux (optional)
             
         Returns:
             bool: True if data was logged, False otherwise
@@ -221,7 +221,8 @@ class DataLogger:
                 'temp_f': round(float(temp_f), 1),
                 'co2': int(co2),                    # Convert to int to save memory
                 'humidity': round(float(humidity), 1),
-                'pressure': round(float(pressure), 0)  # Round to integer for pressure
+                'pressure': round(float(pressure), 0),  # Round to integer for pressure
+                'lux': round(float(lux), 1) if lux is not None else 0.0  # Light level
             }
             
             # Add to history
@@ -229,7 +230,7 @@ class DataLogger:
             
             # Write to file efficiently
             try:
-                log_line = f"{timestamp},{data['temp_c']:.1f},{data['temp_f']:.1f},{data['co2']},{data['humidity']:.1f},{data['pressure']:.1f}\n"
+                log_line = f"{timestamp},{data['temp_c']:.1f},{data['temp_f']:.1f},{data['co2']},{data['humidity']:.1f},{data['pressure']:.1f},{data['lux']:.1f}\n"
                 with open(self.log_filename, 'a') as f:
                     f.write(log_line)
             except Exception as e:
@@ -277,7 +278,9 @@ class DataLogger:
                     'min_humidity': 50.0,
                     'max_humidity': 50.0,
                     'min_pressure': 1013,
-                    'max_pressure': 1013
+                    'max_pressure': 1013,
+                    'min_light': 100.0,
+                    'max_light': 100.0
                 }
             
             # Process data more efficiently
@@ -288,6 +291,7 @@ class DataLogger:
             co2s = [entry['co2'] for entry in entries]
             humidities = [entry['humidity'] for entry in entries]
             pressures = [entry['pressure'] for entry in entries]
+            lights = [entry.get('lux', 0.0) for entry in entries]  # Support old format
             
             # Calculate stats
             stats = {
@@ -298,11 +302,13 @@ class DataLogger:
                 'min_humidity': min(humidities),
                 'max_humidity': max(humidities),
                 'min_pressure': min(pressures),
-                'max_pressure': max(pressures)
+                'max_pressure': max(pressures),
+                'min_light': min(lights),
+                'max_light': max(lights)
             }
             
             # Force cleanup
-            del temps, co2s, humidities, pressures
+            del temps, co2s, humidities, pressures, lights
             gc.collect()
             
             return stats
@@ -318,26 +324,27 @@ class DataLogger:
                 'min_humidity': 50.0,
                 'max_humidity': 50.0,
                 'min_pressure': 1013,
-                'max_pressure': 1013
+                'max_pressure': 1013,
+                'min_light': 100.0,
+                'max_light': 100.0
             }
     
     def emergency_memory_recovery(self):
         """Reduce memory usage in low-memory situations"""
         try:
-            # Clear history to minimum number of entries
-            if len(self.data_history) > 4:
-                # Create a new minimal buffer
-                temp_data = list(self.data_history)[-4:]  # Keep only most recent 4 entries
-                self.data_history = CircularBuffer(4)  # Reduce buffer size
+            # Clear history to minimum entries
+            if len(self.data_history) > 10:
+                temp_data = list(self.data_history)[-10:]  # Keep 10 most recent
+                self.data_history = CircularBuffer(10)
                 for entry in temp_data:
                     self.data_history.append(entry)
                 
-                self.logger.log("LOGGER", "Emergency memory recovery activated - history reduced", "WARNING")
+                self.logger.log("LOGGER", "Emergency memory recovery - history reduced", "WARNING")
                 gc.collect()
                 return True
             return False
         except Exception as e:
-            self.logger.log("LOGGER", f"Emergency memory recovery failed: {e}", "ERROR")
+            self.logger.log("LOGGER", f"Memory recovery failed: {e}", "ERROR")
             return False
     
     def get_log_status(self):
